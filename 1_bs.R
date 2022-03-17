@@ -41,9 +41,9 @@ run_bs_draw <- function(m, theta_var, df, k, N)
     mutate(lower_percentile = r1 - q.975, upper_percentile = r1 - q.025, 
            lower_effron =     r1 + q.025, upper_effron     = r1 + q.975) %>% 
     mutate(percentile_covered = 
-             ifelse(theta >= lower_percentile & theta <= upper_percentile, 1, 0)) %>% 
+             ifelse(i >= lower_percentile & i <= upper_percentile, 1, 0)) %>% 
     mutate(effron_covered = 
-             ifelse(theta >= lower_effron & theta <= upper_effron, 1, 0)) %>% 
+             ifelse(i >= lower_effron & i <= upper_effron, 1, 0)) %>% 
     select(i, percentile_covered, effron_covered) %>%
     mutate(m = !!m)
 }
@@ -57,7 +57,8 @@ run_sim <- function(M, theta_var, df, k, N){
 }
 
 # run code ----------------------------------------------------------------
-out <- run_sim(M = 1000, theta_var = "theta_1", df = df, k = k, N =N) %>% 
+out <- 
+  run_sim(M = 1000, theta_var = "theta_1", df = df, k = k, N =N) %>% 
   bind_rows(
     run_sim(M = 1000, theta_var = "theta_2", df = df, k = k, N =N) 
   ) %>% 
@@ -65,3 +66,4 @@ out <- run_sim(M = 1000, theta_var = "theta_1", df = df, k = k, N =N) %>%
     run_sim(M = 1000, theta_var = "theta_3", df = df, k = k, N =N) 
   )
 
+out %>% data.frame()
