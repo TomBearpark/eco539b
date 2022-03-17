@@ -56,7 +56,12 @@ run_sim <- function(M, theta_var, df, k, N){
     relocate(theta)
 }
 
-
 # run code ----------------------------------------------------------------
-out <- run_sim(M = 5000, theta_var = "theta_1", df = df, k = k, N =N)
+out <- run_sim(M = 1000, theta_var = "theta_1", df = df, k = k, N =N) %>% 
+  bind_rows(
+    run_sim(M = 1000, theta_var = "theta_2", df = df, k = k, N =N) 
+  ) %>% 
+  bind_rows(
+    run_sim(M = 1000, theta_var = "theta_3", df = df, k = k, N =N) 
+  )
 
