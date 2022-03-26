@@ -5,7 +5,7 @@ library(latex2exp)
 library(labelled)
 library(sandwich)
 library(MASS)
-library(clubSandwich)
+library(dfadjust)
 library(stargazer)
 
 setwd("D:\\Dropbox\\Università\\PhD\\II Year\\Spring\\ECO519 - Non-linear Econometrics\\psets\\ps2")
@@ -72,9 +72,11 @@ NJimpact <- lm(lwage ~ NJindic, data = data.use)
 ehw <- sandwich::vcovHC(NJimpact, type = 'HC0')
 lz.meat <- sandwich::meatCL(NJimpact, cluster = data.use$SOB, type = 'HC0')
 lz <- sandwich::vcovCL(NJimpact, cluster = data.use$SOB, type = 'HC0')
-bm <- sandwich::vcovCL(NJimpact, cluster = data.use$SOB, type = 'HC2')
+bm <- dfadjust::dfadjustSE(NJimpact, clustervar=as.factor(data.use$SOB), 
+                           IK = FALSE)
 
 stargazer(NJimpact, NJimpact, NJimpact, NJimpact,
-          se = list(NULL, sqrt(diag(ehw)), sqrt(diag(lz)), sqrt(diag(bm))))
+          se = list(NULL, sqrt(diag(ehw)), sqrt(diag(lz)), 
+                    sqrt(diag(bm$vcov))))
 
 
