@@ -1,0 +1,83 @@
+pacman::p_load(tidyverse, haven, fixest, sandwich, dfadjust, xtable)
+dir <- "/Users/tombearpark/Documents/princeton/2nd_year/term2/eco539b/psets/ps2/"
+theme_set(theme_bw())
+set.seed(123)
+
+df  <- read_dta(paste0(dir, "ak91.dta")) %>% 
+  filter(cohort == 2) %>% 
+  select(lwage, SOB, educ)
+
+# a) ----------------------------------------------------------------------
+m0    <- lm(lwage~educ, data = df)
+m0.fe <- feols(lwage~educ|SOB, data = df)
+d1 <- dfadjustSE(m0)
+
+# Calculate leverage
+H <- hatvalues(m0)
+
+ggplot(tibble(leverage = H)) + 
+  geom_density(aes(x = leverage)) + 
+  geom_vline(aes(xintercept = 1/length(H)), color = "red")
+
+df %>% group_by(SOB) %>% tally() %>% arrange( n) 
+df %>% group_by(SOB) %>% tally() %>% arrange(-n) 
+
+gc()
+
+df$H <- H
+df$resid <- m0$residuals
+
+ggplot(df) + geom_point(aes(x = H, y = resid))
+
+bootstrap <- function(df){
+  draw <- df %>% 
+    group_nest(SOB) %>% 
+      slice_sample(prop = 1, replace = TRUE) %>% 
+    unnest(cols = c(data))
+  coef(feols(lwage~educ, data = draw))['educ']
+}
+bs <- c()
+for(ii in 1:500) {
+  print(ii)
+  bs <- c(bs, bootstrap(df))
+}
+sd(bs)
+
+loo <- map_dfr(unique(df$SOB), function(ii){
+    ss <- df %>% filter(SOB != ii)
+    tibble(left_out_SOB = ii, coef = coef(feols(lwage~educ, data = ss))['educ'])
+  }
+  )
+loo %>% ggplot() + geom_density(aes(x = coef))
+
+df$SOB <- as.factor(df$SOB)
+d2 <- dfadjustSE(m0, clustervar = df$SOB)
+
+
+tibble(
+  Estimator = c("Homoskedastic", 
+                "HC1 SE", 
+                "HC2 SE", 
+                "Clustered HC1", 
+                "Clustered HC2", 
+                "Clustered HC2 Kolesar Adjustment", 
+                "Cluster Bootstrap"), 
+  Value     = c(m1$se["educ"], 
+                d1$coefficients["educ","HC1 se"], 
+                d1$coefficients["educ","HC2 se"],
+                d2$coefficients["educ", "HC1 se"], 
+                d2$coefficients["educ", "HC2 se"], 
+                d2$coefficients["educ", "Adj. se"], 
+                sd(bs))
+  ) %>% 
+  arrange(Value) %>% 
+  xtable(digits = 5) %>% 
+  print(include.rownames=FALSE)
+
+# b) ----------------------------------------------------------------------
+# Despite the large data size, the effective number of observations is small
+# since we only have one treated clusteres
+df$NJ <- ifelse(df$SOB == "34", 1, 0)
+b1 <- lm(lwage ~ NJ, data = df)
+dfadjustSE(b1)
+dfadjustSE(b1, clustervar = df$SOB)
