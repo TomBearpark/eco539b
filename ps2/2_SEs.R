@@ -1,4 +1,5 @@
 pacman::p_load(tidyverse, haven, fixest, sandwich, dfadjust, xtable)
+
 dir <- "/Users/tombearpark/Documents/princeton/2nd_year/term2/eco539b/psets/ps2/"
 out <- "/Users/tombearpark/Dropbox/Apps/Overleaf/eco539/b/figs/ps2/"
 theme_set(theme_bw())
@@ -16,7 +17,18 @@ df %>%
   geom_smooth()
 
 m0    <- lm(lwage~educ, data = df)
-m0.fe <- feols(lwage~educ|SOB, data = df)
+m0.1
+m0.fe   <- feols(lwage~educ|SOB, data = df)
+m0.fe_i <- feols(lwage~educ + i(SOB,educ)|SOB, data = df)
+coefplot(m0.fe_i)
+
+prop <- feols(educ~-1 +i(SOB), data = df)
+coefplot(prop)
+
+
+
+m0.poly <- feols(lwage~poly(educ, 6, raw = TRUE), data = df, vcov = "hetero")
+
 d1 <- dfadjustSE(m0)
 d1$coefficients %>% xtable(digits = 5) %>%   print(include.rownames=FALSE)
 # Calculate leverage
@@ -28,11 +40,8 @@ ggplot(tibble(leverage = H)) +
 
 ggsave(paste0(out, "2a_lowess.png"), height = 3, width = 5)
 
-
 df %>% group_by(SOB) %>% tally() %>% arrange( n) 
 df %>% group_by(SOB) %>% tally() %>% arrange(-n) 
-
-gc()
 
 df$H <- H
 df$resid <- m0$residuals
@@ -87,12 +96,13 @@ tibble(
 # b) ----------------------------------------------------------------------
 # Despite the large data size, the effective number of observations is small
 # since we only have one treated clusteres
-df$SOB <- as.numeric(df$SOB)
+
 df$NJ  <- as.factor(ifelse(df$SOB == "34", "1", "0"))
+df$SOB <- as.factor(df$SOB)
+b1     <- lm(lwage ~ NJ, data = df)
 
-b1 <- lm(lwage ~ NJ, data = df)
-dfadjustSE(b1)$coefficients  %>% xtable(digits = 5) %>%   print(include.rownames=FALSE)
+dfadjustSE(b1)$coefficients %>% xtable(digits = 5) %>% print(include.rownames=FALSE)
 
-dfadjustSE(b1, clustervar = df$NJ)
+dfadjustSE(b1, clustervar = df$SOB, IK = FALSE)
 
 hatvalues(b1) %>% density %>% plot()
