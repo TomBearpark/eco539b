@@ -1,5 +1,6 @@
 pacman::p_load(tidyverse, haven, fixest, sandwich, dfadjust, xtable)
 dir <- "/Users/tombearpark/Documents/princeton/2nd_year/term2/eco539b/psets/ps2/"
+out <- "/Users/tombearpark/Dropbox/Apps/Overleaf/eco539/b/figs/ps2/"
 theme_set(theme_bw())
 set.seed(123)
 
@@ -8,16 +9,25 @@ df  <- read_dta(paste0(dir, "ak91.dta")) %>%
   select(lwage, SOB, educ)
 
 # a) ----------------------------------------------------------------------
+
+df %>% 
+  ggplot(aes(x = educ, y = lwage)) + 
+  geom_point(alpha = 0.4) + 
+  geom_smooth()
+
 m0    <- lm(lwage~educ, data = df)
 m0.fe <- feols(lwage~educ|SOB, data = df)
 d1 <- dfadjustSE(m0)
-
+d1$coefficients %>% xtable(digits = 5) %>%   print(include.rownames=FALSE)
 # Calculate leverage
 H <- hatvalues(m0)
 
 ggplot(tibble(leverage = H)) + 
   geom_density(aes(x = leverage)) + 
   geom_vline(aes(xintercept = 1/length(H)), color = "red")
+
+ggsave(paste0(out, "2a_lowess.png"), height = 3, width = 5)
+
 
 df %>% group_by(SOB) %>% tally() %>% arrange( n) 
 df %>% group_by(SOB) %>% tally() %>% arrange(-n) 
@@ -77,7 +87,12 @@ tibble(
 # b) ----------------------------------------------------------------------
 # Despite the large data size, the effective number of observations is small
 # since we only have one treated clusteres
-df$NJ <- ifelse(df$SOB == "34", 1, 0)
+df$SOB <- as.numeric(df$SOB)
+df$NJ  <- as.factor(ifelse(df$SOB == "34", "1", "0"))
+
 b1 <- lm(lwage ~ NJ, data = df)
-dfadjustSE(b1)
-dfadjustSE(b1, clustervar = df$SOB)
+dfadjustSE(b1)$coefficients  %>% xtable(digits = 5) %>%   print(include.rownames=FALSE)
+
+dfadjustSE(b1, clustervar = df$NJ)
+
+hatvalues(b1) %>% density %>% plot()
