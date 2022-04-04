@@ -1,5 +1,5 @@
-pacman::p_load(tidyverse, haven, fixest, furrr, 
-               dfadjust, xtable, data.table, rsample)
+pacman::p_load(tidyverse, haven, fixest, 
+               dfadjust, xtable, data.table, rsample, parallel, pbmcapply, sandwich)
 theme_set(theme_bw())
 seed <- 123
 set.seed(seed)
@@ -8,50 +8,52 @@ dir <- "/Users/tombearpark/Documents/princeton/2nd_year/term2/eco539b/psets/ps3/
 dir2 <- "/Users/tombearpark/Documents/princeton/2nd_year/term2/eco539b/psets/ps2/"
 out <- "/Users/tombearpark/Dropbox/Apps/Overleaf/eco539/b/figs/ps3/"
 
-plan(multisession, workers = 7)
 
 # problem 1a ---------------------------------------------------------------
+M <- 50000
+
 df  <- read_dta(paste0(dir, "famine.dta")) %>% 
-  mutate(x1 = lgrain_pred*famine, x2 = lgrain_pred * (1-famine)) %>% 
-  as.data.table()
+  mutate(x1 = lgrain_pred*famine, x2 = lgrain_pred * (1-famine), 
+         year = factor(year))
 
-N  <- nrow(df)
+df_sub <- filter(df, year %in% 1953:1965) 
 
-m0 <- lm(ldeaths ~ x1 + x2 + ltotpop + lurbpop + factor(year), data = df)
-m1 <- lm(ldeaths ~ x1 + x2 + ltotpop + lurbpop + factor(year), 
-         data = filter(df, year %in% 1953:1965))
+N0  <- nrow(df)
+N1  <- nrow(df_sub)
+
+m0 <- lm(ldeaths ~ x1 + x2 + ltotpop + lurbpop + year, data = df)
+m1 <- lm(ldeaths ~ x1 + x2 + ltotpop + lurbpop + year, data = df_sub)
 
 # i), ii), iii)
 se0 <- dfadjustSE(m0)
 se1 <- dfadjustSE(m1)
 
 # Bootstrap
-bs <- function(df, N){
-  df <- analysis(df)
+bs <- function(df){
+  df <- as.data.frame(df)
   m  <- feols(ldeaths ~ x1 + x2 + ltotpop + lurbpop | year, data = df)
   c  <- coef(m)[c("x1", "x2")]
   t  <- fixest::tstat(m)[c("x1", "x2")]
   return(c(c = c, t = t))
 }
+mc_bs <- function(df, M, bs_func){
+  
+  bb     <- bootstraps(df, times = M) 
+  out_bb <- pbmclapply(bb$splits, bs_func, mc.cores = 5)
+  draws  <- bind_rows(out_bb)
+  draws
+}
 
-M <- 50000
-bb <- bootstraps(df, times = M) 
-out <- future_map(.x = bb$splits, .f = bs, N = N,                  
-                  .options = furrr_options(seed = seed), 
-                  .progress = TRUE)
-draws <- bind_rows(out)
+draws0 <- mc_bs(df,     M, bs_func = bs)
+draws1 <- mc_bs(df_sub, M, bs_func = bs)
 
-sd(draws$c.x1)
-sd(draws$c.x2)
-
+gc()
 
 # problem 1b --------------------------------------------------------------
-c_se0 <- dfadjustSE(m0, clustervar = as.factor(df$prov))
-c_se1 <- dfadjustSE(m1, clustervar = 
-                      as.factor(filter(df, year %in% 1953:1965)$prov))
+se0_cl <- dfadjustSE(m0, clustervar = as.factor(df$prov))
+se1_cl <- dfadjustSE(m1, clustervar = as.factor(df_sub$prov))
 
-
-bs_cl <- function(df, N){
+bs_cl <- function(df){
   
   df <- df %>% as.data.frame() %>% unnest(cols = c(data))
   
@@ -59,54 +61,62 @@ bs_cl <- function(df, N){
              cluster = ~prov)
   c <- coef(m)[c("x1", "x2")]
   t <- fixest::tstat(m)[c("x1", "x2")]
-  return(c(c, t))
+  return(c(c = c, t = t))
 }
 
-M <- 50000
-bb_cl <- bootstraps(df_cl, times = M) 
-out_cl <- future_map(.x = bb_cl$splits, .f = bs_cl, N = N,                  
-                  .options = furrr_options(seed = seed), 
-                  .progress = TRUE)
-draws_cl <- bind_rows(out_cl)
+df_cl     <- df %>% group_nest(prov)
+df_sub_cl <- df_sub %>% group_nest(prov)
+
+draws0_cl <- mc_bs(df_cl,     M, bs_func = bs_cl)
+draws1_cl <- mc_bs(df_sub_cl, M, bs_func = bs_cl)
+
 
 # clean up  ---------------------------------------------------------------
 
-
-get_table <- function(se0, se1, draws){
-  se0 <- se0$coefficients
-  se1 <- se1$coefficients
+get_table <- function(se, draws, data_string, cluster_string, N){
+  se <- se$coefficients
+  se <- round(se, 3)
+  ci1 <- (quantile(draws$t.x1, c(0.025, 0.975)) / sqrt(N)) %>% round(digits = 3)
+  ci2 <- (quantile(draws$t.x2, c(0.025, 0.975)) / sqrt(N)) %>% round(digits = 3)
   
-  ci1 <- quantile(draws[,1], c(0.025, 0.975)) %>% round(digits = 5)
-  ci2 <- quantile(draws[,2], c(0.025, 0.975)) %>% round(digits = 5)
-  
-  beta1 <- se0['x1', 'Estimate'] %>% round(digits = 5)
-  beta2 <- se1['x2', 'Estimate'] %>% round(digits = 5)
+  beta1 <- se['x1', 'Estimate'] %>% round(digits = 3)
+  beta2 <- se['x2', 'Estimate'] %>% round(digits = 3)
   
   tibble(
     variable =     c("x1", "x2"),
     Estimate =     c(beta1, beta2), 
-    Robust_se =    c(se0['x1', 'HC1 se'],   se1['x2', 'HC1 se']), 
-    HC2 =          c(se0['x1', 'HC2 se'],   se1['x2', 'HC2 se']), 
-    Effective_SE = c(se0['x1', 'Adj. se'],  se1['x2', 'Adj. se']), 
-    BS = c(sd(draws[,1]), sd(draws[,2])), 
+    Robust_se =    c(se['x1', 'HC1 se'],   se['x2', 'HC1 se']), 
+    HC2 =          c(se['x1', 'HC2 se'],   se['x2', 'HC2 se']), 
+    Effective_SE = c(se['x1', 'Adj. se'],  se['x2', 'Adj. se']), 
+    BS = c(sd(draws$c.x1), sd(draws$c.x2)), 
     ci = c(
-      paste0("(", beta1 - ci1[2], "),(", beta1 - ci1[1], ")"),
-      paste0("(", beta2 - ci2[2], "),(", beta2 - ci2[1], ")")
-           )) 
+      paste0("(", beta1 - ci1[2], ",", beta1 - ci1[1], ")"),
+      paste0("(", beta2 - ci2[2], ",", beta2 - ci2[1], ")")
+           )) %>%
+    mutate(Data = data_string, Cluster = cluster_string) %>% 
+    relocate(Cluster, Data)
 }
-get_table(se0, se1, draws) %>% write_csv(paste0(out, "t1.csv"))
-get_table(c_se0, c_se1, draws_cl) %>% write_csv(paste0(out, "t2.csv"))
+
+bind_rows(
+  get_table(se0, draws0, "All", "None", N0),
+  get_table(se1, draws1, "1953:1965", "None", N1),
+  get_table(se0_cl, draws0_cl, "All", "Province", N0),
+  get_table(se1_cl, draws1_cl, "1953:1965", "Province",N1) 
+  ) %>% 
+  xtable(digits = 3) %>% 
+  print(include.rownames=FALSE)
 
 
 # problem 3 ---------------------------------------------------------------
 
-df  <- read_dta(paste0(dir2, "ak91.dta")) %>% 
+df3  <- read_dta(paste0(dir2, "ak91.dta")) %>% 
   filter(cohort == 2) %>% 
   mutate(Z = ifelse(age == floor(age), 1, 0))
 
-
-m1 <- feols(data = df %>% filter(division == 9) , lwage ~ 1 | educ ~ Z)
-m2 <- feols(data = df %>% filter(division == 2) , lwage ~ 1 | educ ~ Z)
+m3.1.ols <- feols(data = df3 %>% filter(division == 9) , lwage ~ educ)
+m3.1 <- feols(data = df3 %>% filter(division == 9) , lwage ~ 1 | educ ~ Z)
+m3.2.ols <- feols(data = df3 %>% filter(division == 2) , lwage ~ educ)
+m3.2 <- feols(data = df3 %>% filter(division == 2) , lwage ~ 1 | educ ~ Z)
 
 get_wald <- function(mm){
   mm$coefficients['fit_educ'] + 
@@ -128,14 +138,31 @@ get_ar <- function(division, df, min_b, max_b, step){
   c(min(ci_ar_f$b), max(ci_ar_f$b))
 }
 
-get_wald(m1)
-get_wald(m2)
-get_ar(9, df, -1,1,0.01)
-get_ar(2, df, -100,100,1)
+format_ci <- function(ci) paste0("(", ci[1], ", ", ci[2], ")")
+
+w1 <- get_wald(m3.1) %>% round(3)
+w2 <- get_wald(m3.2) %>% round(3)
+ar1 <- get_ar(9, df3, -1,1,0.01)
+ar2 <- get_ar(2, df3, -100,100,1)
 
 # First stage F is 9.4, so tF is 1.808 
 tf <- 1.808 
-tf_ci <- mm$coefficients['fit_educ'] + 
-  c(-tf*1.96*se(mm)['fit_educ'], + tf*1.96*se(mm)['fit_educ'])
+tf_ci <- (m3.1$coefficients['fit_educ'] + 
+  c(-tf*1.96*se(m3.1)['fit_educ'], + tf*1.96*se(m3.1)['fit_educ'])) %>% round(3)
 
-# Inifnite length for the oterh one, first stage F is tiny
+tibble(
+  Division = c("Pacific", "Mid-Atlantic"),
+  `OLS Estimate` = c(round(coef(m3.1.ols)['educ'],3), c(round(coef(m3.2.ols)['educ'],3))),
+  `2sls Estimate` = c(round(coef(m3.1)['fit_educ'],3), round(coef(m3.2)['fit_educ'],3)),
+  `First Stage F` = c(round(fitstat(m3.1, "ivf1")$`ivf1::educ`$stat,3),
+                      round(fitstat(m3.2, "ivf1")$`ivf1::educ`$stat,3)),
+  Wald = c(format_ci(w1), format_ci(w2)), 
+  AR   = c(format_ci(ar1), format_ci(ar2)), 
+  tF = c(format_ci(tf_ci), Inf)
+  ) %>% 
+  t() %>% 
+  xtable() 
+  
+
+# Save outputs, since its a long peice of code 
+save.image(file = file.path(dir, "run.RData"))
