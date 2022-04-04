@@ -1,12 +1,14 @@
-pacman::p_load(tidyverse, haven, fixest, sandwich, dfadjust, xtable, data.table)
+pacman::p_load(tidyverse, haven, fixest, furrr, 
+               dfadjust, xtable, data.table, rsample)
 theme_set(theme_bw())
-set.seed(123)
+seed <- 123
+set.seed(seed)
 
 dir <- "/Users/tombearpark/Documents/princeton/2nd_year/term2/eco539b/psets/ps3/"
 dir2 <- "/Users/tombearpark/Documents/princeton/2nd_year/term2/eco539b/psets/ps2/"
-
 out <- "/Users/tombearpark/Dropbox/Apps/Overleaf/eco539/b/figs/ps3/"
 
+plan(multisession, workers = 7)
 
 # problem 1a ---------------------------------------------------------------
 df  <- read_dta(paste0(dir, "famine.dta")) %>% 
@@ -19,41 +21,40 @@ m0 <- lm(ldeaths ~ x1 + x2 + ltotpop + lurbpop + factor(year), data = df)
 m1 <- lm(ldeaths ~ x1 + x2 + ltotpop + lurbpop + factor(year), 
          data = filter(df, year %in% 1953:1965))
 
-# i,ii,iii
+# i), ii), iii)
 se0 <- dfadjustSE(m0)
 se1 <- dfadjustSE(m1)
 
 # Bootstrap
-bs <- function(i, df, N){
-  df <- df[sample(.N,N, replace = TRUE),]
-  m <- feols(ldeaths ~ x1 + x2 + ltotpop + lurbpop | year, data = df)
-  c <- coef(m)[c("x1", "x2")]
-  t <- fixest::tstat(m)[c("x1", "x2")]
-  return(c(c, t))
+bs <- function(df, N){
+  df <- analysis(df)
+  m  <- feols(ldeaths ~ x1 + x2 + ltotpop + lurbpop | year, data = df)
+  c  <- coef(m)[c("x1", "x2")]
+  t  <- fixest::tstat(m)[c("x1", "x2")]
+  return(c(c = c, t = t))
 }
 
 M <- 50000
+bb <- bootstraps(df, times = M) 
+out <- future_map(.x = bb$splits, .f = bs, N = N,                  
+                  .options = furrr_options(seed = seed), 
+                  .progress = TRUE)
+draws <- bind_rows(out)
 
-draws <- matrix(nrow = M, ncol = 4)
-for (ii in 1:M) draws[ii,] <- bs(ii, df, N)
-
-sd(draws[,1])
-sd(draws[,2])
+sd(draws$c.x1)
+sd(draws$c.x2)
 
 
 # problem 1b --------------------------------------------------------------
 c_se0 <- dfadjustSE(m0, clustervar = as.factor(df$prov))
-c_se1 <- dfadjustSE(m1, clustervar = as.factor(df$prov))
+c_se1 <- dfadjustSE(m1, clustervar = 
+                      as.factor(filter(df, year %in% 1953:1965)$prov))
 
-# cl <- sample(df$prov, size = length(unique(df$prov)), replace = TRUE)
-# df$n <- 1:nrow(df)
-# indices <- sapply(cl, function(x) df$n[df$prov==x], simplify = "vector")
 
-bs_cl <- function(i, df, N){
-  df <- df %>% 
-    group_nest(prov) %>% 
-    slice_sample(prop = 1, replace = TRUE) %>% 
-    unnest(cols = c(data))
+bs_cl <- function(df, N){
+  
+  df <- df %>% as.data.frame() %>% unnest(cols = c(data))
+  
   m <- feols(ldeaths ~ x1 + x2 + ltotpop + lurbpop | year, data = df, 
              cluster = ~prov)
   c <- coef(m)[c("x1", "x2")]
@@ -61,10 +62,12 @@ bs_cl <- function(i, df, N){
   return(c(c, t))
 }
 
-draws_cl <- matrix(nrow = M, ncol = 4)
-for (ii in 1:M) draws_cl[ii,] <- bs_cl(ii, df, N)
-
-
+M <- 50000
+bb_cl <- bootstraps(df_cl, times = M) 
+out_cl <- future_map(.x = bb_cl$splits, .f = bs_cl, N = N,                  
+                  .options = furrr_options(seed = seed), 
+                  .progress = TRUE)
+draws_cl <- bind_rows(out_cl)
 
 # clean up  ---------------------------------------------------------------
 
@@ -135,4 +138,4 @@ tf <- 1.808
 tf_ci <- mm$coefficients['fit_educ'] + 
   c(-tf*1.96*se(mm)['fit_educ'], + tf*1.96*se(mm)['fit_educ'])
 
-# Inifnite length for the oterh one
+# Inifnite length for the oterh one, first stage F is tiny
