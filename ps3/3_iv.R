@@ -23,6 +23,8 @@ N1  <- nrow(df_sub)
 
 m0 <- lm(ldeaths ~ x1 + x2 + ltotpop + lurbpop + year, data = df)
 m1 <- lm(ldeaths ~ x1 + x2 + ltotpop + lurbpop + year, data = df_sub)
+beta0 <- coef(m0)[c("x1", "x2")]
+beta1 <- coef(m1)[c("x1", "x2")]
 
 # i), ii), iii)
 se0 <- dfadjustSE(m0)
@@ -33,19 +35,21 @@ bs <- function(df){
   df <- as.data.frame(df)
   m  <- feols(ldeaths ~ x1 + x2 + ltotpop + lurbpop | year, data = df)
   c  <- coef(m)[c("x1", "x2")]
-  t  <- fixest::tstat(m)[c("x1", "x2")]
-  return(c(c = c, t = t))
+  se  <- fixest::se(m)[c("x1", "x2")]
+  return(c(c = c, se = se))
 }
-mc_bs <- function(df, M, bs_func){
+mc_bs <- function(df, M, bs_func, beta){
   
   bb     <- bootstraps(df, times = M) 
   out_bb <- pbmclapply(bb$splits, bs_func, mc.cores = 5)
   draws  <- bind_rows(out_bb)
-  draws
+  # Create t-stat
+  draws %>% 
+    mutate(t.x1 = (c.x1 - beta[1])/se.x1, t.x2 = (c.x2 - beta[2])/se.x2)
 }
 
-draws0 <- mc_bs(df,     M, bs_func = bs)
-draws1 <- mc_bs(df_sub, M, bs_func = bs)
+draws0 <- mc_bs(df,     M, bs_func = bs, beta = beta0)
+draws1 <- mc_bs(df_sub, M, bs_func = bs, beta = beta1)
 
 gc()
 
@@ -59,16 +63,16 @@ bs_cl <- function(df){
   
   m <- feols(ldeaths ~ x1 + x2 + ltotpop + lurbpop | year, data = df, 
              cluster = ~prov)
-  c <- coef(m)[c("x1", "x2")]
-  t <- fixest::tstat(m)[c("x1", "x2")]
-  return(c(c = c, t = t))
+  c  <- coef(m)[c("x1", "x2")]
+  se  <- fixest::se(m)[c("x1", "x2")]
+  return(c(c = c, se = se))
 }
 
 df_cl     <- df %>% group_nest(prov)
 df_sub_cl <- df_sub %>% group_nest(prov)
 
-draws0_cl <- mc_bs(df_cl,     M, bs_func = bs_cl)
-draws1_cl <- mc_bs(df_sub_cl, M, bs_func = bs_cl)
+draws0_cl <- mc_bs(df_cl,     M, bs_func = bs_cl, beta = beta0)
+draws1_cl <- mc_bs(df_sub_cl, M, bs_func = bs_cl, beta = beta1)
 
 
 # clean up  ---------------------------------------------------------------
@@ -76,35 +80,39 @@ draws1_cl <- mc_bs(df_sub_cl, M, bs_func = bs_cl)
 get_table <- function(se, draws, data_string, cluster_string, N){
   se <- se$coefficients
   se <- round(se, 3)
-  ci1 <- (quantile(draws$t.x1, c(0.025, 0.975)) / sqrt(N)) %>% round(digits = 3)
-  ci2 <- (quantile(draws$t.x2, c(0.025, 0.975)) / sqrt(N)) %>% round(digits = 3)
+  ci1 <- (quantile(draws$t.x1, c(0.025, 0.975)) / sqrt(N)) 
+  ci2 <- (quantile(draws$t.x2, c(0.025, 0.975)) / sqrt(N)) 
   
-  beta1 <- se['x1', 'Estimate'] %>% round(digits = 3)
-  beta2 <- se['x2', 'Estimate'] %>% round(digits = 3)
+  beta1 <- se['x1', 'Estimate'] 
+  beta2 <- se['x2', 'Estimate'] 
   
-  tibble(
+  rbind(
     variable =     c("x1", "x2"),
-    Estimate =     c(beta1, beta2), 
-    Robust_se =    c(se['x1', 'HC1 se'],   se['x2', 'HC1 se']), 
+    Estimate =     round(c(beta1, beta2),3),
+    Robust_se =    c(se['x1', 'HC1 se'],   se['x2', 'HC1 se']),
     HC2 =          c(se['x1', 'HC2 se'],   se['x2', 'HC2 se']), 
     Effective_SE = c(se['x1', 'Adj. se'],  se['x2', 'Adj. se']), 
-    BS = c(sd(draws$c.x1), sd(draws$c.x2)), 
+    BS = round(c(sd(draws$c.x1), sd(draws$c.x2)),3), 
     ci = c(
-      paste0("(", beta1 - ci1[2], ",", beta1 - ci1[1], ")"),
-      paste0("(", beta2 - ci2[2], ",", beta2 - ci2[1], ")")
-           )) %>%
-    mutate(Data = data_string, Cluster = cluster_string) %>% 
-    relocate(Cluster, Data)
+      paste0("(", round(beta1 - ci1[2],3), ",", round(beta1 - ci1[1],3), ")"),
+      paste0("(", round(beta2 - ci2[2],3), ",", round(beta2 - ci2[1],3), ")")
+           )
+    ) 
 }
 
-bind_rows(
-  get_table(se0, draws0, "All", "None", N0),
-  get_table(se1, draws1, "1953:1965", "None", N1),
-  get_table(se0_cl, draws0_cl, "All", "Province", N0),
-  get_table(se1_cl, draws1_cl, "1953:1965", "Province",N1) 
+rbind(
+  get_table(se0, draws0, "All", "None", N0) ,
+  get_table(se0_cl, draws0_cl, "All", "Province", N0)[3:7, ] 
+) %>% 
+  cbind(
+    rbind(
+      get_table(se1, draws1, "1953:1965", "None", N1), 
+      get_table(se1_cl, draws1_cl, "1953:1965", "Province",N1)[3:7, ] 
+    )
   ) %>% 
   xtable(digits = 3) %>% 
-  print(include.rownames=FALSE)
+  print()
+
 
 
 # problem 3 ---------------------------------------------------------------
@@ -120,7 +128,7 @@ m3.2 <- feols(data = df3 %>% filter(division == 2) , lwage ~ 1 | educ ~ Z)
 
 get_wald <- function(mm){
   mm$coefficients['fit_educ'] + 
-    c(-1.96*se(mm)['fit_educ'], + 1.96*se(mm)['fit_educ'])
+    c(-qnorm(0.975)*se(mm)['fit_educ'], + qnorm(0.975)*se(mm)['fit_educ'])
 }
 
 get_ar <- function(division, df, min_b, max_b, step){
@@ -129,7 +137,7 @@ get_ar <- function(division, df, min_b, max_b, step){
   a1 <- map_dfr(seq(min_b, max_b, step), function(bb){
     df$bX <- bb*df$educ
     df$YY <- df$lwage - df$bX
-    m <- feols(YY~Z, data = df)
+    m <- feols(YY~Z, data = df, vcov = "hetero")
     tibble(b = bb, val = 1*(fixest::pvalue(m)['Z'] > 0.05))
     }
   )
@@ -142,8 +150,8 @@ format_ci <- function(ci) paste0("(", ci[1], ", ", ci[2], ")")
 
 w1 <- get_wald(m3.1) %>% round(3)
 w2 <- get_wald(m3.2) %>% round(3)
-ar1 <- get_ar(9, df3, -1,1,0.01)
-ar2 <- get_ar(2, df3, -100,100,1)
+ar1 <- get_ar(9, df3, -1,1,0.001)
+ar2 <- get_ar(2, df3, -100,100,10)
 
 # First stage F is 9.4, so tF is 1.808 
 tf <- 1.808 
@@ -166,3 +174,5 @@ tibble(
 
 # Save outputs, since its a long peice of code 
 save.image(file = file.path(dir, "run.RData"))
+
+load(file = file.path(dir, "run.RData"))
