@@ -133,6 +133,7 @@ subset_overlap <- function(df3, var){
   support_p0_PA <- range(dd %>% filter(state == 0) %>% pull(period0))
                       
   dd <- filter(dd, between(period0, support_p0_PA[1], support_p0_PA[2]))
+  dd <- filter(dd, between(period1, support_p0_PA[1], support_p0_PA[2]))
   
   N1 <- length(dd$storeid)
   print(paste0("--- N was ", N, ", new N is ", N1))
@@ -161,15 +162,38 @@ f_hat_y <- function(value, df, group, time){
 q_prime <- map_dbl(1:3, function(i) f_hat_y(10, dfs[[i]], 0, 0))
 
 # Precompute 
-finv_q <- function(df){
-  Y01  <- df %>% filter(state == 0) %>% pull(period1) %>% sort()
+finv_q <- function(df, g = 0, t = 1){
   
-  q1   <- map_dbl(Y01,   function(i) f_hat_y(i, df, 0, 1))
+  Y01  <- df %>% filter(state == 0) %>% 
+    pull(.data[[paste0("period", 1)]]) %>% sort()
   
-  finv <- map_dbl(0:100, function(q) min(Y01[q1>=q]))
+  q1   <- map_dbl(Y01,   function(i) f_hat_y(i, df, g, t))
+  
+  ## NOT SURE IF I SHOULD BE PUTTING Q1 in here!!
+  finv <- map_dbl(q1, function(q) min(Y01[q1>=q]))
   finv
 }
 
+finv_qs <- map(1:3, function(i) finv_q(dfs[[i]]))
+
+y_prime <- map_dbl(1:3, function(ii)finv_qs[[ii]][10])
+table_c <- tibble(outcome = vars, q = q_prime, y_prime)
+
+xtable(table_c) %>% 
+  print(include.rownames = FALSE)
+
+# Full ATT estimator 
+df <- dfs[[1]]
+
+att <- function(df){
+  
+  Y11 <- df %>% filter(state == 1) %>% pull(period1)
+  
+  finv <- finv_q(df, g = 1, t = 0)
+  mean(Y11) - mean(finv)
+  
+}
+map_dbl(dfs, att)
 
 # -------------------------------------------------------------------------
 # q4 ----------------------------------------------------------------------
