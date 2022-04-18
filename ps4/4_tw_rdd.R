@@ -1,6 +1,6 @@
 pacman::p_load(tidyverse, haven, fixest, xtable, 
                RDHonest, patchwork, 
-               rdrobust)
+               rdrobust, qte)
 theme_set(theme_bw())
 seed <- 123
 set.seed(seed)
@@ -61,8 +61,6 @@ feols(y ~ -1 + x_min_both_and_full, data = df)
 # -------------------------------------------------------------------------
 # q2 ----------------------------------------------------------------------
 # -------------------------------------------------------------------------
-
-
 
 
 # -------------------------------------------------------------------------
@@ -193,7 +191,28 @@ att <- function(df){
   mean(Y11) - mean(finv)
   
 }
-map_dbl(dfs, att)
+results <- map_dbl(dfs, att)
+
+
+# Version with canned package ---------------------------------------------
+run_canned <- function(var, df3){
+  
+  data <- df3 %>% select(storeid, .data[[var]], state, after)  %>% 
+    group_by(storeid) %>% 
+    filter(all(!is.na(.data[[var]])))%>% 
+    ungroup() %>% 
+    as.data.frame()
+  
+  ff <- as.formula(paste0(var, "~ state"))
+  
+  cc <- CiC(ff, t = 1, tmin1 = 0, tname = "after", data = data, panel = TRUE, 
+      idname = "storeid")
+  tibble(outcome = var, ate = cc$ate, se = cc$ate.se)
+}
+
+canned_results <- map_dfr(vars, run_canned, df3)
+xtable(canned_results) %>% 
+  print(include.rownames=FALSE)
 
 # -------------------------------------------------------------------------
 # q4 ----------------------------------------------------------------------
