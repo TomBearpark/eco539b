@@ -75,11 +75,13 @@ dfs <- map(vars, subset_overlap, df3 = df3)
 
 for(ii in 1:3){
   data    <- dfs[[ii]]
+  F_00    <- ecdf(data$Y00)
+  att <- ATT(data)
   print(paste0("F_00(10) is : ", F_00(10)))
   print(paste0("Counterfactual for F_00(10) is : ", invCDF(data$Y01, F_00(10))))
   print(paste0("ATT is ", att))
   
-  bs     <- bootstraps(data$df, times = 10) 
+  bs     <- bootstraps(data$df, times = 500) 
   out_bb <- map_dbl(bs$splits, bs_func)
   print(paste0("SD is ", sd(out_bb)))
 }
