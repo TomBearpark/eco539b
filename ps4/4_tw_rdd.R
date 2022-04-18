@@ -1,6 +1,5 @@
 pacman::p_load(tidyverse, haven, fixest, xtable, 
-               RDHonest, patchwork, 
-               rdrobust, qte)
+               RDHonest, patchwork, rdrobust, qte)
 theme_set(theme_bw())
 seed <- 123
 set.seed(seed)
@@ -8,7 +7,6 @@ set.seed(seed)
 dir <- "/Users/tombearpark/Documents/princeton/2nd_year/term2/eco539b/psets/ps4/"
 out <- "/Users/tombearpark/Dropbox/Apps/Overleaf/eco539/b/figs/ps4/"
 dir.create(out, showWarnings = FALSE)
-
 
 # -------------------------------------------------------------------------
 # q1 ----------------------------------------------------------------------
@@ -67,8 +65,8 @@ feols(y ~ -1 + x_min_both_and_full, data = df)
 # q3 ----------------------------------------------------------------------
 # -------------------------------------------------------------------------
 
+# Load the data, specify outcome variables we are interested in 
 df3 <- read_dta(file.path(dir, "njmin_clean.dta"))
-
 vars <- c("FTE", "inctime", "p_entree")
 
 # plot the ecdfs so we know what we are dealing with... 
@@ -81,7 +79,7 @@ df3 %>%
   ggplot() + 
   stat_ecdf(aes(x = value, color = state)) +
   facet_wrap(variable ~ period, scales = "free", ncol = 2) -> e1
-
+e1
 ggsave(plot = e1, filename = paste0(out, "ecdf_raw.png"), height = 5, width = 6)
 
 # Helper function: reshape the data for convenient estimations
@@ -107,7 +105,7 @@ run_did <- function(df3, var){
 map_dfr(vars, run_did, df3 = df3) %>% 
   xtable(digits = 3) %>% 
   print(include.rownames = FALSE)
-
+# Check intuition - we can get the same thing using a FE regression
 feols(FTE ~ after + state + i(state, after, ref = '0')| storeid, data = df3)
 feols(inctime ~ after + state + i(state, after, ref = '0')| storeid, data = df3)
 feols(p_entree ~ after + state + i(state, after, ref = '0')| storeid, data = df3)
