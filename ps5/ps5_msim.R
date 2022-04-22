@@ -1,5 +1,6 @@
 pacman::p_load(tidyverse, xtable, patchwork)
 theme_set(theme_bw())
+# seed <- 124
 seed <- 123
 set.seed(seed)
 
@@ -7,8 +8,9 @@ dir <- "/Users/tombearpark/Documents/princeton/2nd_year/term2/eco539b/psets/ps5/
 out <- "/Users/tombearpark/Dropbox/Apps/Overleaf/eco539/b/figs/ps5/"
 dir.create(out, showWarnings = FALSE)
 
-# p3 b) -------------------------------------------------------------------
+# p3  -------------------------------------------------------------------
 
+# Load data, store the size
 df <- as.matrix(read_csv(paste0(dir, "ddc.csv"), col_names = paste0("t",1:10)))
 M  <- 10
 TT <- ncol(df)
@@ -24,14 +26,8 @@ get.pi.hat <- function(data, N=100){
   rowMeans(sapply(1:N, S, data = data, simplify = TRUE))
 }
 
-pi_hat <- get.pi.hat(df)
-
-
-# simulate data -----------------------------------------------------------
 # Get empty matrices for storing values
 U <- Y <- eps <- array(dim = c(N, TT, M))
-
-rho <- 0.4
 
 # 1. Draw epsilons - all TT * N * M in one go
 for(m in 1:M) eps[,1:TT,m] <- matrix(rnorm(n = (TT*N)), ncol = TT)
@@ -84,15 +80,18 @@ sd_diag  <- apply(Si, 1, sd)
 sd_cov   <- cov(Si[1,], Si[2,])
 Omega    <- matrix(c(sd_diag[1]^2, sd_cov, sd_cov, sd_diag[2]^2), nrow = 2)
 W        <- solve(Omega)
+print(xtable(W, digits = 6), include.rownames = FALSE)
 
-
-# Plot the objective function ---------------------------------------------
 objective <- function(rho, W, pi_hat, eps){
   p.tilde <- gen.pi.tilde(rho=rho, eps=eps)
   pp      <- matrix((pi_hat - p.tilde))
   drop(t(pp) %*% W %*% pp)
 }
 
+# Get the pi.hat for the original sample
+pi_hat <- get.pi.hat(df)
+
+# Plot the objective function ---------------------------------------------
 rho_grid <- seq(-0.99,0.99,0.005)
 results  <- tibble(rho = rho_grid, 
                    obj = map_dbl(rho_grid, 
@@ -102,12 +101,17 @@ pp1 <- ggplot(results) + geom_line(aes(x = rho, y = obj))
 pp2 <- ggplot(filter(results, between(rho, 0.4, 0.8))) + geom_line(aes(x = rho, y = obj))
 pp <- pp1 + pp2
 pp
+ggsave(filename = paste0(out, "obj.png"), plot = pp, height = 3, width = 6)
 
+# Optimize ----------------------------------------------------------------
 
+pp <- optimize(f = objective, interval = c(0.4, 0.9), W = W, pi_hat=pi_hat, eps=eps, tol = 0.0000001)
 
+tibble(variable = c("rho_hat", "min obj", "obj(0,6)"), 
+       value    = c(pp$minimum, pp$objective, 
+                    objective(0.6, W, pi_hat, eps))) %>% 
+  xtable(digits = 6) %>% 
+  print(include.rownames = FALSE)
 
-
-
-
-
+# Avar --------------------------------------------------------------------
 
