@@ -15,9 +15,16 @@ M <- 10
 TT <- ncol(df)
 N <- nrow(df)
 
-S <- function(i, data) {
-  pi1 <- mean(data[i, c(1:9)] * data[i, c(2:10)])
-  pi2 <- mean(data[i, c(1:8)] * data[i, c(3:10)])
+# FP - I think this is not correct. It should read
+#S <- function(i, data){
+#  pi1 <- sum(data[i,c(1:9)] * data[i,c(2:10)])/(TT-2)
+#  pi2 <- sum(data[i,c(1:8)] * data[i,c(3:10)])/(TT-3)
+#  c(pi1, pi2)
+#}
+
+S <- function(i, data){
+  pi1 <- mean(data[i,c(1:9)] * data[i,c(2:10)])
+  pi2 <- mean(data[i,c(1:8)] * data[i,c(3:10)])
   c(pi1, pi2)
 }
 
