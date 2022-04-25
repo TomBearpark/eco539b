@@ -142,4 +142,19 @@ ggsave(filename = paste0(out, "seed_hack.png"), plot = ps, height = 3, width = 4
 
 # Avar --------------------------------------------------------------------
 #??
-(1 + 1 / M)
+library(rsample)
+
+bs      <- bootstraps(df, times = 500)
+eps[,,] <- rnorm(TT * N * M, mean = 0, sd = 1)
+
+bs_func <- function(data){
+  draw   <- as.data.frame(data)
+  pi_hat <- get.pi.hat(draw)
+  tibble(pp = optimize(
+    f = objective, interval = c(0, 1),
+    W = W, pi_hat = pi_hat, eps = eps,
+    tol = 0.000000001)$minimum)
+}
+out_bb <- map_dfr(bs$splits, bs_func)
+out_bb$pp %>% density %>% plot()
+sd(out_bb$pp)^2
