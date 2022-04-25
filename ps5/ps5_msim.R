@@ -11,15 +11,14 @@ dir.create(out, showWarnings = FALSE)
 
 # Load data, store the size
 df <- as.matrix(read_csv(paste0(dir, "ddc.csv"), col_names = paste0("t", 1:10)))
-M <- 10
+M  <- 10
 TT <- ncol(df)
-N <- nrow(df)
+N  <- nrow(df)
 
-# FP - I think this is not correct. It should read
 S <- function(i, data, TT = 10){
- pi1 <- sum(data[i,c(1:9)] * data[i,c(2:10)])/(TT-2)
- pi2 <- sum(data[i,c(1:8)] * data[i,c(3:10)])/(TT-3)
- c(pi1, pi2)
+  pi1 <- sum(data[i,c(1:9)] * data[i,c(2:10)])/(TT-1)
+  pi2 <- sum(data[i,c(1:8)] * data[i,c(3:10)])/(TT-2)
+  c(pi1, pi2)
 }
 
 get.pi.hat <- function(data, N = 100) {
@@ -30,7 +29,7 @@ get.pi.hat <- function(data, N = 100) {
 U <- Y <- eps <- array(dim = c(N, TT, M))
 
 # 1. Draw epsilons - all TT * N * M in one go
-for (m in 1:M) eps[, 1:TT, m] <- matrix(rnorm(n = (TT * N)), ncol = TT)
+eps[,,] <- rnorm(TT * N * M, mean = 0, sd = 1)
 
 # 2. Calculate the U as a function of rho
 gen.U.m <- function(rho, eps, U0, N = 100, TT = 10) {
@@ -93,6 +92,7 @@ pi_hat <- get.pi.hat(df)
 
 # Plot the objective function ---------------------------------------------
 rho_grid <- seq(0, 1, 0.005)
+
 results <- tibble(
   rho = rho_grid,
   obj = map_dbl(rho_grid,
@@ -101,8 +101,7 @@ results <- tibble(
   )
 )
 
-pp1 <- ggplot(results) +
-  geom_line(aes(x = rho, y = obj))
+pp1 <- ggplot(results) + geom_line(aes(x = rho, y = obj))
 pp2 <- ggplot(filter(results, between(rho, 0.5, 0.75))) +
   geom_line(aes(x = rho, y = obj))
 pp  <- pp1 + pp2
@@ -114,7 +113,7 @@ ggsave(filename = paste0(out, "obj.png"), plot = pp, height = 3, width = 6)
 pp <- optimize(
   f = objective, interval = c(0.4, 0.9),
   W = W, pi_hat = pi_hat, eps = eps,
-  tol = 0.0000001
+  tol = 0.000000001
 )
 
 tibble(
@@ -126,6 +125,21 @@ tibble(
   xtable(digits = 6) %>%
   print(include.rownames = FALSE)
 
-# Avar --------------------------------------------------------------------
+plot_df <- map_dfr(1:100, function(ii){
+  eps[,,] <- rnorm(TT * N * M, mean = 0, sd = 1)
+  
+  tibble(i= ii, pp = optimize(
+      f = objective, interval = c(0.4, 0.9),
+      W = W, pi_hat = pi_hat, eps = eps,
+      tol = 0.000000001)$minimum)
+  }
+)
+plot_df %>% ggplot() + geom_histogram(aes(x = pp)) + 
+  xlab("hat rho")-> ps
+ggsave(filename = paste0(out, "seed_hack.png"), plot = ps, height = 3, width = 4)
 
+
+
+# Avar --------------------------------------------------------------------
+#??
 (1 + 1 / M)
